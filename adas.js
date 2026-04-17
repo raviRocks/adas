@@ -11,12 +11,8 @@ const state = {
   lastLogTime: 0,
 };
 
-const video = document.getElementById('video');
-const canvas = document.getElementById('overlay');
-const ctx = canvas.getContext('2d');
-const splash = document.getElementById('splash');
-const splashStatus = document.getElementById('splash-status');
-const permErr = document.getElementById('perm-error');
+// DOM elements - initialized after page loads
+let video, canvas, ctx, splash, splashStatus, permErr;
 
 const VEHICLE_CLASSES = ['car','truck','bus','motorcycle','bicycle','boat','train','airplane'];
 const PERSON_CLASSES = ['person'];
@@ -58,9 +54,6 @@ function updateClock() {
     now.getHours().toString().padStart(2,'0') + ':' +
     now.getMinutes().toString().padStart(2,'0');
 }
-
-setInterval(updateClock, 1000);
-updateClock();
 
 // Application Initialization
 async function init() {
@@ -443,13 +436,27 @@ function closeLogModal() {
 }
 
 // Event Listeners
-document.getElementById('log-btn').addEventListener('click', openLogModal);
-document.getElementById('retry-btn').addEventListener('click', initCamera);
-
 window.addEventListener('load', () => {
+  // Initialize DOM elements
+  video = document.getElementById('video');
+  canvas = document.getElementById('overlay');
+  ctx = canvas.getContext('2d');
+  splash = document.getElementById('splash');
+  splashStatus = document.getElementById('splash-status');
+  permErr = document.getElementById('perm-error');
+  
+  // Attach event listeners
+  document.getElementById('log-btn').addEventListener('click', openLogModal);
+  document.getElementById('retry-btn').addEventListener('click', initCamera);
+  document.getElementById('btn-sound').classList.toggle('active', state.soundOn);
+  
+  // Start clock updates
+  setInterval(updateClock, 1000);
+  updateClock();
+  
+  // Initialize app
   lockOrientation();
   init();
-  document.getElementById('btn-sound').classList.toggle('active', state.soundOn);
 });
 
 window.addEventListener('orientationchange', () => {
