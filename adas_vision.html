@@ -13,6 +13,7 @@
 <script>window._loadErrors = [];</script>
 <script src="tf.min.js" onerror="window._loadErrors.push('TensorFlow.js (tf.min.js)')"></script>
 <script src="coco-ssd.min.js" onerror="window._loadErrors.push('COCO-SSD (coco-ssd.min.js)')"></script>
+<script src="adas.js"></script>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;900&family=Share+Tech+Mono&display=swap');
 
@@ -262,6 +263,46 @@ font-family: 'Share Tech Mono', monospace;
 font-size: 10px; color: rgba(0,255,136,0.4);
 }
 
+#speed-display {
+position: absolute; top: calc(env(safe-area-inset-top, 12px) + 60px);
+left: 50%; transform: translateX(-50%);
+z-index: 6;
+font-family: 'Share Tech Mono', monospace;
+font-size: 12px; color: rgba(0,255,136,0.5);
+background: rgba(0,0,0,0.3);
+padding: 4px 12px;
+border-radius: 4px;
+}
+
+#log-btn {
+position: absolute; bottom: calc(env(safe-area-inset-bottom, 0px) + 10px);
+left: 20px; z-index: 7;
+width: 56px; height: 56px;
+border-radius: 4px;
+background: rgba(0,0,0,0.6);
+border: 2px solid rgba(0,255,136,0.3);
+color: var(--green);
+font-size: 20px;
+display: flex; align-items: center; justify-content: center;
+cursor: pointer; backdrop-filter: blur(12px);
+transition: background 0.2s, border-color 0.2s;
+touch-action: manipulation;
+}
+#log-btn:active { background: var(--g10); border-color: var(--green); }
+
+#log-modal {
+position: fixed; inset: 0; z-index: 300;
+background: rgba(0,0,0,0.95);
+display: none; flex-direction: column;
+padding: 20px; gap: 12px;
+}
+#log-modal.show { display: flex; }
+#log-modal h2 { color: var(--green); font-size: 18px; margin-bottom: 10px; }
+#log-list { color: rgba(0,255,136,0.7); font-family: 'Share Tech Mono', monospace; font-size: 10px; flex: 1; overflow-y: auto; margin-bottom: 12px; }
+#log-actions { display: flex; gap: 10px; }
+.log-action-btn { flex: 1; padding: 10px; background: rgba(0,0,0,0.5); border: 1px solid var(--green); color: var(--green); border-radius: 4px; cursor: pointer; font-family: 'Orbitron', sans-serif; font-size: 12px; }
+.log-action-btn:active { background: var(--g10); }
+
 #perm-error {
 position: fixed; inset: 0; z-index: 200;
 background: #000;
@@ -332,6 +373,7 @@ Go to Settings &rarr; Safari &rarr; Camera &rarr; Allow</p>
 <div id="alert">&#9888; COLLISION RISK DETECTED</div>
 <div id="fps">FPS: --</div>
 <div id="obj-count">OBJ: 0</div>
+<div id="speed-display">SPEED: -- mph</div>
 
 <div id="controls">
 <div class="ctrl-btn active" id="btn-detect" title="Toggle Detection" onclick="toggleDetection()">
@@ -342,6 +384,18 @@ Go to Settings &rarr; Safari &rarr; Camera &rarr; Allow</p>
 </div>
 <div class="ctrl-btn" id="btn-sound" title="Toggle Sound" onclick="toggleSound()">
 <span id="sound-icon">🔇</span>
+</div>
+</div>
+
+<button id="log-btn" title="View Logs">📊</button>
+
+<div id="log-modal">
+<h2>DETECTION LOG</h2>
+<div id="log-list"></div>
+<div id="log-actions">
+<button class="log-action-btn" onclick="downloadCSV()">⬇️ EXPORT CSV</button>
+<button class="log-action-btn" onclick="clearLogs()">🗑️ CLEAR</button>
+<button class="log-action-btn" onclick="closeLogModal()">✕ CLOSE</button>
 </div>
 </div>
 
@@ -368,314 +422,6 @@ Go to Settings &rarr; Safari &rarr; Camera &rarr; Allow</p>
 </div>
 </div>
 
-<script>
-const state = {
-model: null, stream: null, facingMode: 'environment',
-detecting: true, soundOn: localStorage.getItem('adas-sound') === 'true', running: false,
-frameCount: 0, lastFps: 0, alertActive: false,
-audioCtx: null, wakeLock: null,
-};
 
-
-const video = document.getElementById('video');
-const canvas = document.getElementById('overlay');
-const ctx = canvas.getContext('2d');
-const splash = document.getElementById('splash');
-const splashStatus = document.getElementById('splash-status');
-const permErr = document.getElementById('perm-error');
-
-const VEHICLE_CLASSES = ['car','truck','bus','motorcycle','bicycle','boat','train','airplane'];
-const PERSON_CLASSES = ['person'];
-const RISK_CLASSES = ['car','truck','bus','person','motorcycle'];
-
-const COLORS = { vehicle: '#ffb800', person: '#ff2d55', other: '#00aaff' };
-
-function classColor(label) {
-if (VEHICLE_CLASSES.includes(label)) return COLORS.vehicle;
-if (PERSON_CLASSES.includes(label)) return COLORS.person;
-return COLORS.other;
-}
-function classType(label) {
-if (VEHICLE_CLASSES.includes(label)) return 'vehicle';
-if (PERSON_CLASSES.includes(label)) return 'person';
-return 'other';
-}
-
-async function requestWakeLock() {
-if ('wakeLock' in navigator) {
-try {
-state.wakeLock = await navigator.wakeLock.request('screen');
-state.wakeLock.addEventListener('release', () => { state.wakeLock = null; });
-} catch (e) {}
-}
-}
-document.addEventListener('visibilitychange', () => {
-if (document.visibilityState === 'visible' && state.running) requestWakeLock();
-});
-
-function updateClock() {
-const now = new Date();
-document.getElementById('clock').textContent =
-now.getHours().toString().padStart(2,'0') + ':' +
-now.getMinutes().toString().padStart(2,'0');
-}
-setInterval(updateClock, 1000);
-updateClock();
-
-async function init() {
-splashStatus.textContent = 'LOADING AI MODEL...';
-try {
-if (window._loadErrors && window._loadErrors.length > 0) {
-throw new Error('Failed to load: ' + window._loadErrors.join(', ') + '. Serve via HTTP and check paths.');
-}
-if (typeof cocoSsd === 'undefined') {
-throw new Error('COCO-SSD not loaded. Check console for script errors.');
-}
-state.model = await cocoSsd.load();
-splashStatus.textContent = 'STARTING CAMERA...';
-await initCamera();
-splashStatus.textContent = 'SYSTEM READY';
-setTimeout(() => { splash.classList.add('hidden'); }, 700);
-} catch (e) {
-splashStatus.textContent = 'ERROR: ' + e.message;
-console.error(e);
-}
-}
-
-async function initCamera() {
-permErr.classList.remove('show');
-try {
-if (state.stream) state.stream.getTracks().forEach(t => t.stop());
-const constraints = {
-video: {
-facingMode: { ideal: state.facingMode },
-width: { ideal: 1920 }, height: { ideal: 1080 },
-frameRate: { ideal: 30, max: 30 },
-},
-audio: false,
-};
-state.stream = await navigator.mediaDevices.getUserMedia(constraints);
-video.srcObject = state.stream;
-await new Promise(r => video.onloadedmetadata = r);
-await video.play();
-resizeCanvas();
-requestWakeLock();
-if (!state.running) { state.running = true; detectLoop(); }
-} catch (e) {
-console.error('Camera error:', e);
-permErr.classList.add('show');
-splash.classList.add('hidden');
-}
-}
-
-function resizeCanvas() {
-canvas.width = video.videoWidth || window.innerWidth;
-canvas.height = video.videoHeight || window.innerHeight;
-}
-window.addEventListener('resize', resizeCanvas);
-
-let lastTime = 0;
-async function detectLoop() {
-const now = performance.now();
-const dt = now - lastTime;
-if (dt > 0) {
-const fps = Math.round(1000 / dt);
-state.frameCount++;
-if (state.frameCount % 10 === 0) {
-document.getElementById('fps').textContent = 'FPS: ' + fps;
-}
-}
-lastTime = now;
-
-if (state.model && state.detecting && video.readyState === 4) {
-try {
-const predictions = await state.model.detect(video);
-renderFrame(predictions);
-updateHUD(predictions);
-} catch(e) {}
-} else {
-ctx.clearRect(0, 0, canvas.width, canvas.height);
-}
-requestAnimationFrame(detectLoop);
-}
-
-function renderFrame(predictions) {
-ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-ctx.save();
-ctx.strokeStyle = 'rgba(0,255,136,0.12)';
-ctx.lineWidth = 1;
-ctx.setLineDash([8, 16]);
-ctx.beginPath();
-ctx.moveTo(0, canvas.height * 0.45);
-ctx.lineTo(canvas.width, canvas.height * 0.45);
-ctx.stroke();
-ctx.setLineDash([]);
-ctx.restore();
-
-ctx.save();
-ctx.strokeStyle = 'rgba(0,255,136,0.18)';
-ctx.lineWidth = 1.5;
-const cx = canvas.width / 2;
-const horizon = canvas.height * 0.45;
-ctx.beginPath(); ctx.moveTo(cx - 60, horizon); ctx.lineTo(cx - 200, canvas.height); ctx.stroke();
-ctx.beginPath(); ctx.moveTo(cx + 60, horizon); ctx.lineTo(cx + 200, canvas.height); ctx.stroke();
-ctx.restore();
-
-for (const pred of predictions) {
-if (pred.score < 0.45) continue;
-const [x, y, w, h] = pred.bbox;
-const color = classColor(pred.class);
-const scaleX = canvas.width / (video.videoWidth || canvas.width);
-const scaleY = canvas.height / (video.videoHeight || canvas.height);
-const bx = x * scaleX, by = y * scaleY;
-const bw = w * scaleX, bh = h * scaleY;
-
-ctx.save();
-ctx.fillStyle = color + '18';
-ctx.fillRect(bx, by, bw, bh);
-
-ctx.strokeStyle = color;
-ctx.lineWidth = 2;
-const cs = Math.min(20, bw * 0.3, bh * 0.3);
-ctx.beginPath();
-ctx.moveTo(bx + cs, by); ctx.lineTo(bx, by); ctx.lineTo(bx, by + cs);
-ctx.moveTo(bx + bw - cs, by); ctx.lineTo(bx + bw, by); ctx.lineTo(bx + bw, by + cs);
-ctx.moveTo(bx, by + bh - cs); ctx.lineTo(bx, by + bh); ctx.lineTo(bx + cs, by + bh);
-ctx.moveTo(bx + bw - cs, by + bh); ctx.lineTo(bx + bw, by + bh); ctx.lineTo(bx + bw, by + bh - cs);
-ctx.stroke();
-
-const label = pred.class.toUpperCase();
-const conf = Math.round(pred.score * 100) + '%';
-ctx.font = 'bold 11px "Share Tech Mono", monospace';
-const textW = ctx.measureText(label + ' ' + conf).width + 10;
-ctx.fillStyle = 'rgba(0,0,0,0.65)';
-ctx.fillRect(bx, by - 20, textW, 18);
-ctx.fillStyle = color;
-ctx.fillText(label + ' ' + conf, bx + 5, by - 6);
-
-const area = (bw * bh) / (canvas.width * canvas.height);
-if (area > 0.08 && RISK_CLASSES.includes(pred.class)) {
-ctx.fillStyle = 'rgba(255,45,85,0.85)';
-ctx.beginPath(); ctx.arc(bx + bw - 10, by + 10, 5, 0, Math.PI * 2); ctx.fill();
-}
-ctx.restore();
-}
-}
-
-let lastAlertTime = 0, lastHudUpdate = 0;
-const HUD_INTERVAL = 200;
-function updateHUD(predictions) {
-const hudNow = performance.now();
-if (hudNow - lastHudUpdate < HUD_INTERVAL) return;
-lastHudUpdate = hudNow;
-
-const valid = predictions.filter(p => p.score >= 0.45);
-let vehicles = 0, persons = 0;
-const tags = {};
-for (const p of valid) {
-if (VEHICLE_CLASSES.includes(p.class)) vehicles++;
-if (PERSON_CLASSES.includes(p.class)) persons++;
-tags[p.class] = (tags[p.class] || 0) + 1;
-}
-
-let risk = 'LOW', riskClass = '';
-const largestArea = valid.length
-? Math.max(...valid.map(p => (p.bbox[2] * p.bbox[3]) / (canvas.width * canvas.height)))
-: 0;
-if (largestArea > 0.20 || (persons > 0 && largestArea > 0.08)) { risk = 'HIGH'; riskClass = 'danger'; }
-else if (largestArea > 0.08 || vehicles > 1 || persons > 0) { risk = 'MED'; riskClass = 'amber'; }
-
-document.getElementById('val-vehicles').textContent = vehicles;
-document.getElementById('val-persons').textContent = persons;
-document.getElementById('val-total').textContent = valid.length;
-document.getElementById('obj-count').textContent = 'OBJ: ' + valid.length;
-const riskEl = document.getElementById('val-risk');
-riskEl.textContent = risk; riskEl.className = 'metric-val ' + riskClass;
-
-const alertEl = document.getElementById('alert');
-const now = Date.now();
-if (risk === 'HIGH') {
-alertEl.classList.add('show');
-if (state.soundOn && now - lastAlertTime > 2000) { playBeep(880, 0.15, 0.2); lastAlertTime = now; }
-} else { alertEl.classList.remove('show'); }
-if (risk === 'MED' && state.soundOn && now - lastAlertTime > 3000) { playBeep(440, 0.08, 0.1); lastAlertTime = now; }
-
-const list = document.getElementById('det-list');
-list.innerHTML = '';
-for (const [cls, cnt] of Object.entries(tags)) {
-const div = document.createElement('div');
-div.className = 'det-tag ' + classType(cls);
-div.textContent = cls.toUpperCase() + (cnt > 1 ? ' x' + cnt : '');
-list.appendChild(div);
-}
-}
-
-function toggleDetection() {
-state.detecting = !state.detecting;
-document.getElementById('btn-detect').classList.toggle('active', state.detecting);
-if (!state.detecting) {
-ctx.clearRect(0, 0, canvas.width, canvas.height);
-document.getElementById('det-list').innerHTML = '';
-document.getElementById('val-vehicles').textContent = '0';
-document.getElementById('val-persons').textContent = '0';
-document.getElementById('val-total').textContent = '0';
-document.getElementById('val-risk').textContent = '--';
-document.getElementById('alert').classList.remove('show');
-}
-}
-
-function flipCamera() {
-state.facingMode = state.facingMode === 'environment' ? 'user' : 'environment';
-initCamera();
-}
-
-function toggleSound() {
-state.soundOn = !state.soundOn;
-localStorage.setItem('adas-sound', state.soundOn);
-document.getElementById('sound-icon').textContent = state.soundOn ? '🔊' : '🔇';
-document.getElementById('btn-sound').classList.toggle('active', state.soundOn);
-if (state.soundOn) {
-if (!state.audioCtx) state.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-if (state.audioCtx.state === 'suspended') state.audioCtx.resume();
-}
-}
-
-function playBeep(freq, vol, dur) {
-if (!state.audioCtx) return;
-const osc = state.audioCtx.createOscillator();
-const gain = state.audioCtx.createGain();
-osc.connect(gain); gain.connect(state.audioCtx.destination);
-osc.frequency.value = freq; gain.gain.value = vol;
-osc.start(); osc.stop(state.audioCtx.currentTime + dur);
-hapticFeedback();
-}
-
-function hapticFeedback(pattern = 1) {
-if (navigator.vibrate) {
-if (pattern === 1) navigator.vibrate([50, 50, 50]);
-else if (pattern === 2) navigator.vibrate([100, 50, 100, 50, 100]);
-else navigator.vibrate(30);
-}
-}
-
-function lockOrientation() {
-if (screen.orientation && screen.orientation.lock) {
-screen.orientation.lock('landscape-primary').catch(() => {});
-}
-}
-
-document.getElementById('retry-btn').addEventListener('click', initCamera);
-
-window.addEventListener('load', () => {
-lockOrientation();
-init();
-document.getElementById('btn-sound').classList.toggle('active', state.soundOn);
-});
-
-window.addEventListener('orientationchange', () => {
-setTimeout(() => { resizeCanvas(); }, 100);
-});
-</script>
 </body>
 </html>
