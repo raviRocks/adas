@@ -1,0 +1,651 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="ADAS Vision">
+<link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🚗</text></svg>">
+<link rel="manifest" href="data:application/manifest+json,{%22name%22:%22ADAS%20Vision%22,%22short_name%22:%22ADAS%22,%22start_url%22:%22.%22,%22display%22:%22standalone%22,%22theme_color%22:%22%23000000%22,%22background_color%22:%22%23000000%22,%22icons%22:[{%22src%22:%22data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3e%3ctext y='.9em' font-size='90'%3e🚗%3c/text%3e%3c/svg%3e%22,%22sizes%22:%22192x192%22,%22type%22:%22image/svg+xml%22}]}">
+<title>ADAS Vision</title>
+<script>window._loadErrors = [];</script>
+<script src="tf.min.js" onerror="window._loadErrors.push('TensorFlow.js (tf.min.js)')"></script>
+<script src="coco-ssd.min.js" onerror="window._loadErrors.push('COCO-SSD (coco-ssd.min.js)')"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;900&family=Share+Tech+Mono&display=swap');
+
+:root {
+--green: #00ff88;
+--amber: #ffb800;
+--red: #ff2d55;
+--blue: #0af;
+--g10: rgba(0,255,136,0.10);
+--g30: rgba(0,255,136,0.30);
+}
+
+* { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color: transparent; }
+
+html, body {
+width: 100%; height: 100%;
+background: #000;
+overflow: hidden;
+font-family: 'Orbitron', sans-serif;
+color: var(--green);
+touch-action: none;
+-webkit-user-select: none; user-select: none;
+}
+
+#splash {
+position: fixed; inset: 0; z-index: 100;
+background: #000;
+display: flex; flex-direction: column;
+align-items: center; justify-content: center;
+gap: 24px;
+transition: opacity 0.6s;
+}
+#splash.hidden { opacity: 0; pointer-events: none; }
+
+.splash-logo {
+font-size: 36px; font-weight: 900;
+letter-spacing: 8px;
+color: var(--green);
+text-shadow: 0 0 40px var(--green), 0 0 80px rgba(0,255,136,0.3);
+animation: glowPulse 2s infinite;
+}
+.splash-sub {
+font-family: 'Share Tech Mono', monospace;
+font-size: 12px; letter-spacing: 4px;
+color: rgba(0,255,136,0.5);
+}
+.splash-ring {
+width: 80px; height: 80px;
+border: 2px solid var(--g30);
+border-top-color: var(--green);
+border-radius: 50%;
+animation: spin 1s linear infinite;
+}
+.splash-status {
+font-family: 'Share Tech Mono', monospace;
+font-size: 11px; color: rgba(0,255,136,0.5);
+letter-spacing: 2px;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes glowPulse {
+0%,100% { text-shadow: 0 0 40px var(--green), 0 0 80px rgba(0,255,136,0.3); }
+50% { text-shadow: 0 0 20px var(--green); }
+}
+
+#app { position: relative; width: 100%; height: 100%; }
+
+video {
+position: absolute; inset: 0;
+width: 100%; height: 100%;
+object-fit: cover; z-index: 1;
+}
+
+canvas#overlay {
+position: absolute; inset: 0;
+width: 100%; height: 100%;
+z-index: 2; pointer-events: none;
+}
+
+#scanlines {
+position: absolute; inset: 0; z-index: 3; pointer-events: none;
+background: repeating-linear-gradient(
+transparent 0px, transparent 2px,
+rgba(0,0,0,0.06) 2px, rgba(0,0,0,0.06) 4px
+);
+}
+
+#vignette {
+position: absolute; inset: 0; z-index: 3; pointer-events: none;
+background: radial-gradient(ellipse at center, transparent 50%, rgba(0,0,0,0.8) 100%);
+}
+
+.hud-corner {
+position: absolute; z-index: 5; pointer-events: none;
+width: 36px; height: 36px;
+}
+.hud-corner.tl { top: env(safe-area-inset-top, 16px); left: 16px;
+border-top: 2px solid var(--green); border-left: 2px solid var(--green); }
+.hud-corner.tr { top: env(safe-area-inset-top, 16px); right: 16px;
+border-top: 2px solid var(--green); border-right: 2px solid var(--green); }
+.hud-corner.bl { bottom: env(safe-area-inset-bottom, 16px); left: 16px;
+border-bottom: 2px solid var(--green); border-left: 2px solid var(--green); }
+.hud-corner.br { bottom: env(safe-area-inset-bottom, 16px); right: 16px;
+border-bottom: 2px solid var(--green); border-right: 2px solid var(--green); }
+
+#topbar {
+position: absolute; top: 0; left: 0; right: 0; z-index: 6;
+padding: calc(env(safe-area-inset-top, 12px) + 14px) 20px 12px;
+display: flex; align-items: center; justify-content: space-between;
+background: linear-gradient(to bottom, rgba(0,0,0,0.75) 0%, transparent 100%);
+}
+
+#logo-text {
+font-size: 16px; font-weight: 900;
+letter-spacing: 5px;
+color: var(--green);
+text-shadow: 0 0 16px var(--green);
+}
+
+#top-right { display: flex; align-items: center; gap: 10px; }
+
+#live-badge {
+display: flex; align-items: center; gap: 5px;
+background: rgba(255,45,85,0.15);
+border: 1px solid rgba(255,45,85,0.5);
+border-radius: 4px; padding: 3px 8px;
+font-family: 'Share Tech Mono', monospace;
+font-size: 10px; letter-spacing: 2px; color: var(--red);
+}
+.live-dot {
+width: 5px; height: 5px; border-radius: 50%;
+background: var(--red);
+box-shadow: 0 0 6px var(--red);
+animation: blink 1s infinite;
+}
+
+#clock {
+font-family: 'Share Tech Mono', monospace;
+font-size: 13px; color: rgba(0,255,136,0.7);
+}
+
+#reticle {
+position: absolute; z-index: 5; pointer-events: none;
+top: 50%; left: 50%; transform: translate(-50%, -50%);
+width: 60px; height: 60px;
+}
+#reticle svg { width: 100%; height: 100%; }
+
+#alert {
+position: absolute; z-index: 8;
+top: 100px; left: 50%; transform: translateX(-50%);
+white-space: nowrap;
+background: rgba(255, 45, 85, 0.15);
+border: 1px solid var(--red);
+border-radius: 6px;
+padding: 8px 20px;
+font-size: 12px; font-weight: 600;
+letter-spacing: 3px; color: var(--red);
+text-shadow: 0 0 10px var(--red);
+display: none;
+animation: alertPulse 0.5s infinite;
+}
+#alert.show { display: block; }
+@keyframes alertPulse {
+0%,100% { box-shadow: 0 0 10px rgba(255,45,85,0.3); }
+50% { box-shadow: 0 0 24px rgba(255,45,85,0.7); }
+}
+
+#bottom-hud {
+position: absolute; bottom: 0; left: 0; right: 0; z-index: 6;
+padding: 16px 20px calc(env(safe-area-inset-bottom, 16px) + 12px);
+background: linear-gradient(to top, rgba(0,0,0,0.85) 0%, transparent 100%);
+}
+
+#metrics {
+display: flex; justify-content: space-around; align-items: flex-end;
+margin-bottom: 12px;
+}
+
+.metric { display: flex; flex-direction: column; align-items: center; gap: 3px; }
+.metric-val {
+font-size: 32px; font-weight: 700; line-height: 1;
+color: var(--green);
+text-shadow: 0 0 20px var(--green);
+transition: color 0.3s, text-shadow 0.3s;
+font-variant-numeric: tabular-nums;
+}
+.metric-val.amber { color: var(--amber); text-shadow: 0 0 20px var(--amber); }
+.metric-val.danger { color: var(--red); text-shadow: 0 0 20px var(--red); animation: blink 0.4s infinite; }
+.metric-lbl {
+font-family: 'Share Tech Mono', monospace;
+font-size: 9px; letter-spacing: 2px;
+color: rgba(0,255,136,0.45); text-transform: uppercase;
+}
+
+#det-list {
+display: flex; flex-wrap: wrap; gap: 6px; justify-content: center;
+min-height: 28px;
+}
+.det-tag {
+font-family: 'Share Tech Mono', monospace;
+font-size: 10px; letter-spacing: 1px;
+padding: 3px 9px; border-radius: 3px;
+border: 1px solid;
+animation: fadeIn 0.3s ease;
+}
+.det-tag.vehicle { border-color: var(--amber); color: var(--amber); background: rgba(255,184,0,0.1); }
+.det-tag.person { border-color: var(--red); color: var(--red); background: rgba(255,45,85,0.1); }
+.det-tag.other { border-color: var(--blue); color: var(--blue); background: rgba(0,170,255,0.1); }
+
+@keyframes fadeIn { from { opacity:0; transform: scale(0.9); } to { opacity:1; transform: scale(1); } }
+
+#controls {
+position: absolute; bottom: calc(env(safe-area-inset-bottom, 0px) + 160px);
+right: 16px; z-index: 7;
+display: flex; flex-direction: column; gap: 10px;
+}
+.ctrl-btn {
+width: 44px; height: 44px;
+border-radius: 50%;
+background: rgba(0,0,0,0.5);
+border: 1px solid var(--g30);
+color: var(--green);
+font-size: 16px;
+display: flex; align-items: center; justify-content: center;
+cursor: pointer; -webkit-backdrop-filter: blur(8px);
+transition: background 0.2s, border-color 0.2s;
+}
+.ctrl-btn:active { background: var(--g10); border-color: var(--green); }
+.ctrl-btn.active { border-color: var(--green); box-shadow: 0 0 10px var(--g30); }
+
+#fps {
+position: absolute; top: calc(env(safe-area-inset-top, 12px) + 60px);
+right: 16px; z-index: 6;
+font-family: 'Share Tech Mono', monospace;
+font-size: 10px; color: rgba(0,255,136,0.4);
+}
+
+#obj-count {
+position: absolute; top: calc(env(safe-area-inset-top, 12px) + 60px);
+left: 16px; z-index: 6;
+font-family: 'Share Tech Mono', monospace;
+font-size: 10px; color: rgba(0,255,136,0.4);
+}
+
+#perm-error {
+position: fixed; inset: 0; z-index: 200;
+background: #000;
+display: none; flex-direction: column;
+align-items: center; justify-content: center;
+gap: 16px; padding: 32px; text-align: center;
+}
+#perm-error.show { display: flex; }
+#perm-error h2 { font-size: 18px; color: var(--red); }
+#perm-error p { font-family: 'Share Tech Mono', monospace; font-size: 12px; color: rgba(255,255,255,0.5); line-height: 1.6; }
+#retry-btn {
+margin-top: 8px; padding: 12px 28px;
+background: transparent; border: 1px solid var(--green);
+color: var(--green); font-family: 'Orbitron', sans-serif;
+font-size: 12px; letter-spacing: 3px; border-radius: 4px;
+cursor: pointer;
+}
+
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.1} }
+</style>
+</head>
+<body>
+
+<div id="splash">
+<div class="splash-logo">ADAS</div>
+<div class="splash-sub">ADVANCED DRIVER ASSISTANCE</div>
+<div class="splash-ring"></div>
+<div class="splash-status" id="splash-status">INITIALIZING...</div>
+</div>
+
+<div id="perm-error">
+<h2>&#9888; CAMERA ACCESS DENIED</h2>
+<p>ADAS Vision requires camera access to function.<br>
+Go to Settings &rarr; Safari &rarr; Camera &rarr; Allow</p>
+<button id="retry-btn">RETRY</button>
+</div>
+
+<div id="app">
+<video id="video" autoplay playsinline muted></video>
+<canvas id="overlay"></canvas>
+<div id="scanlines"></div>
+<div id="vignette"></div>
+
+<div class="hud-corner tl"></div>
+<div class="hud-corner tr"></div>
+<div class="hud-corner bl"></div>
+<div class="hud-corner br"></div>
+
+<div id="topbar">
+<div id="logo-text">ADAS</div>
+<div id="top-right">
+<div id="live-badge"><div class="live-dot"></div>LIVE</div>
+<div id="clock">--:--</div>
+</div>
+</div>
+
+<div id="reticle">
+<svg viewBox="0 0 60 60" fill="none" xmlns="http://www.w3.org/2000/svg">
+<circle cx="30" cy="30" r="28" stroke="rgba(0,255,136,0.2)" stroke-width="1"/>
+<circle cx="30" cy="30" r="2" fill="rgba(0,255,136,0.6)"/>
+<line x1="30" y1="2" x2="30" y2="12" stroke="rgba(0,255,136,0.5)" stroke-width="1"/>
+<line x1="30" y1="48" x2="30" y2="58" stroke="rgba(0,255,136,0.5)" stroke-width="1"/>
+<line x1="2" y1="30" x2="12" y2="30" stroke="rgba(0,255,136,0.5)" stroke-width="1"/>
+<line x1="48" y1="30" x2="58" y2="30" stroke="rgba(0,255,136,0.5)" stroke-width="1"/>
+</svg>
+</div>
+
+<div id="alert">&#9888; COLLISION RISK DETECTED</div>
+<div id="fps">FPS: --</div>
+<div id="obj-count">OBJ: 0</div>
+
+<div id="controls">
+<div class="ctrl-btn active" id="btn-detect" title="Toggle Detection" onclick="toggleDetection()">
+<span>&#128065;</span>
+</div>
+<div class="ctrl-btn" id="btn-cam" title="Flip Camera" onclick="flipCamera()">
+<span>&#128260;</span>
+</div>
+<div class="ctrl-btn" id="btn-sound" title="Toggle Sound" onclick="toggleSound()">
+<span id="sound-icon">&#128263;</span>
+</div>
+</div>
+
+<div id="bottom-hud">
+<div id="metrics">
+<div class="metric">
+<div class="metric-val" id="val-vehicles">0</div>
+<div class="metric-lbl">VEHICLES</div>
+</div>
+<div class="metric">
+<div class="metric-val" id="val-persons">0</div>
+<div class="metric-lbl">PERSONS</div>
+</div>
+<div class="metric">
+<div class="metric-val" id="val-risk">LOW</div>
+<div class="metric-lbl">RISK LEVEL</div>
+</div>
+<div class="metric">
+<div class="metric-val" id="val-total">0</div>
+<div class="metric-lbl">OBJECTS</div>
+</div>
+</div>
+<div id="det-list"></div>
+</div>
+</div>
+
+<script>
+const state = {
+model: null, stream: null, facingMode: 'environment',
+detecting: true, soundOn: false, running: false,
+frameCount: 0, lastFps: 0, alertActive: false,
+audioCtx: null, wakeLock: null,
+};
+
+const video = document.getElementById('video');
+const canvas = document.getElementById('overlay');
+const ctx = canvas.getContext('2d');
+const splash = document.getElementById('splash');
+const splashStatus = document.getElementById('splash-status');
+const permErr = document.getElementById('perm-error');
+
+const VEHICLE_CLASSES = ['car','truck','bus','motorcycle','bicycle','boat','train','airplane'];
+const PERSON_CLASSES = ['person'];
+const RISK_CLASSES = ['car','truck','bus','person','motorcycle'];
+
+const COLORS = { vehicle: '#ffb800', person: '#ff2d55', other: '#00aaff' };
+
+function classColor(label) {
+if (VEHICLE_CLASSES.includes(label)) return COLORS.vehicle;
+if (PERSON_CLASSES.includes(label)) return COLORS.person;
+return COLORS.other;
+}
+function classType(label) {
+if (VEHICLE_CLASSES.includes(label)) return 'vehicle';
+if (PERSON_CLASSES.includes(label)) return 'person';
+return 'other';
+}
+
+async function requestWakeLock() {
+if ('wakeLock' in navigator) {
+try {
+state.wakeLock = await navigator.wakeLock.request('screen');
+state.wakeLock.addEventListener('release', () => { state.wakeLock = null; });
+} catch (e) {}
+}
+}
+document.addEventListener('visibilitychange', () => {
+if (document.visibilityState === 'visible' && state.running) requestWakeLock();
+});
+
+function updateClock() {
+const now = new Date();
+document.getElementById('clock').textContent =
+now.getHours().toString().padStart(2,'0') + ':' +
+now.getMinutes().toString().padStart(2,'0');
+}
+setInterval(updateClock, 1000);
+updateClock();
+
+async function init() {
+splashStatus.textContent = 'LOADING AI MODEL...';
+try {
+if (window._loadErrors && window._loadErrors.length > 0) {
+throw new Error('Failed to load: ' + window._loadErrors.join(', ') + '. Serve via HTTP and check paths.');
+}
+if (typeof cocoSsd === 'undefined') {
+throw new Error('COCO-SSD not loaded. Check console for script errors.');
+}
+state.model = await cocoSsd.load();
+splashStatus.textContent = 'STARTING CAMERA...';
+await initCamera();
+splashStatus.textContent = 'SYSTEM READY';
+setTimeout(() => { splash.classList.add('hidden'); }, 700);
+} catch (e) {
+splashStatus.textContent = 'ERROR: ' + e.message;
+console.error(e);
+}
+}
+
+async function initCamera() {
+permErr.classList.remove('show');
+try {
+if (state.stream) state.stream.getTracks().forEach(t => t.stop());
+const constraints = {
+video: {
+facingMode: { ideal: state.facingMode },
+width: { ideal: 1920 }, height: { ideal: 1080 },
+frameRate: { ideal: 30, max: 30 },
+},
+audio: false,
+};
+state.stream = await navigator.mediaDevices.getUserMedia(constraints);
+video.srcObject = state.stream;
+await new Promise(r => video.onloadedmetadata = r);
+await video.play();
+resizeCanvas();
+requestWakeLock();
+if (!state.running) { state.running = true; detectLoop(); }
+} catch (e) {
+console.error('Camera error:', e);
+permErr.classList.add('show');
+splash.classList.add('hidden');
+}
+}
+
+function resizeCanvas() {
+canvas.width = video.videoWidth || window.innerWidth;
+canvas.height = video.videoHeight || window.innerHeight;
+}
+window.addEventListener('resize', resizeCanvas);
+
+let lastTime = 0;
+async function detectLoop() {
+const now = performance.now();
+const dt = now - lastTime;
+if (dt > 0) {
+const fps = Math.round(1000 / dt);
+state.frameCount++;
+if (state.frameCount % 10 === 0) {
+document.getElementById('fps').textContent = 'FPS: ' + fps;
+}
+}
+lastTime = now;
+
+if (state.model && state.detecting && video.readyState === 4) {
+try {
+const predictions = await state.model.detect(video);
+renderFrame(predictions);
+updateHUD(predictions);
+} catch(e) {}
+} else {
+ctx.clearRect(0, 0, canvas.width, canvas.height);
+}
+requestAnimationFrame(detectLoop);
+}
+
+function renderFrame(predictions) {
+ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+ctx.save();
+ctx.strokeStyle = 'rgba(0,255,136,0.12)';
+ctx.lineWidth = 1;
+ctx.setLineDash([8, 16]);
+ctx.beginPath();
+ctx.moveTo(0, canvas.height * 0.45);
+ctx.lineTo(canvas.width, canvas.height * 0.45);
+ctx.stroke();
+ctx.setLineDash([]);
+ctx.restore();
+
+ctx.save();
+ctx.strokeStyle = 'rgba(0,255,136,0.18)';
+ctx.lineWidth = 1.5;
+const cx = canvas.width / 2;
+const horizon = canvas.height * 0.45;
+ctx.beginPath(); ctx.moveTo(cx - 60, horizon); ctx.lineTo(cx - 200, canvas.height); ctx.stroke();
+ctx.beginPath(); ctx.moveTo(cx + 60, horizon); ctx.lineTo(cx + 200, canvas.height); ctx.stroke();
+ctx.restore();
+
+for (const pred of predictions) {
+if (pred.score < 0.45) continue;
+const [x, y, w, h] = pred.bbox;
+const color = classColor(pred.class);
+const scaleX = canvas.width / (video.videoWidth || canvas.width);
+const scaleY = canvas.height / (video.videoHeight || canvas.height);
+const bx = x * scaleX, by = y * scaleY;
+const bw = w * scaleX, bh = h * scaleY;
+
+ctx.save();
+ctx.fillStyle = color + '18';
+ctx.fillRect(bx, by, bw, bh);
+
+ctx.strokeStyle = color;
+ctx.lineWidth = 2;
+const cs = Math.min(20, bw * 0.3, bh * 0.3);
+ctx.beginPath();
+ctx.moveTo(bx + cs, by); ctx.lineTo(bx, by); ctx.lineTo(bx, by + cs);
+ctx.moveTo(bx + bw - cs, by); ctx.lineTo(bx + bw, by); ctx.lineTo(bx + bw, by + cs);
+ctx.moveTo(bx, by + bh - cs); ctx.lineTo(bx, by + bh); ctx.lineTo(bx + cs, by + bh);
+ctx.moveTo(bx + bw - cs, by + bh); ctx.lineTo(bx + bw, by + bh); ctx.lineTo(bx + bw, by + bh - cs);
+ctx.stroke();
+
+const label = pred.class.toUpperCase();
+const conf = Math.round(pred.score * 100) + '%';
+ctx.font = 'bold 11px "Share Tech Mono", monospace';
+const textW = ctx.measureText(label + ' ' + conf).width + 10;
+ctx.fillStyle = 'rgba(0,0,0,0.65)';
+ctx.fillRect(bx, by - 20, textW, 18);
+ctx.fillStyle = color;
+ctx.fillText(label + ' ' + conf, bx + 5, by - 6);
+
+const area = (bw * bh) / (canvas.width * canvas.height);
+if (area > 0.08 && RISK_CLASSES.includes(pred.class)) {
+ctx.fillStyle = 'rgba(255,45,85,0.85)';
+ctx.beginPath(); ctx.arc(bx + bw - 10, by + 10, 5, 0, Math.PI * 2); ctx.fill();
+}
+ctx.restore();
+}
+}
+
+let lastAlertTime = 0, lastHudUpdate = 0;
+const HUD_INTERVAL = 200;
+function updateHUD(predictions) {
+const hudNow = performance.now();
+if (hudNow - lastHudUpdate < HUD_INTERVAL) return;
+lastHudUpdate = hudNow;
+
+const valid = predictions.filter(p => p.score >= 0.45);
+let vehicles = 0, persons = 0;
+const tags = {};
+for (const p of valid) {
+if (VEHICLE_CLASSES.includes(p.class)) vehicles++;
+if (PERSON_CLASSES.includes(p.class)) persons++;
+tags[p.class] = (tags[p.class] || 0) + 1;
+}
+
+let risk = 'LOW', riskClass = '';
+const largestArea = valid.length
+? Math.max(...valid.map(p => (p.bbox[2] * p.bbox[3]) / (canvas.width * canvas.height)))
+: 0;
+if (largestArea > 0.20 || (persons > 0 && largestArea > 0.08)) { risk = 'HIGH'; riskClass = 'danger'; }
+else if (largestArea > 0.08 || vehicles > 1 || persons > 0) { risk = 'MED'; riskClass = 'amber'; }
+
+document.getElementById('val-vehicles').textContent = vehicles;
+document.getElementById('val-persons').textContent = persons;
+document.getElementById('val-total').textContent = valid.length;
+document.getElementById('obj-count').textContent = 'OBJ: ' + valid.length;
+const riskEl = document.getElementById('val-risk');
+riskEl.textContent = risk; riskEl.className = 'metric-val ' + riskClass;
+
+const alertEl = document.getElementById('alert');
+const now = Date.now();
+if (risk === 'HIGH') {
+alertEl.classList.add('show');
+if (state.soundOn && now - lastAlertTime > 2000) { playBeep(880, 0.15, 0.2); lastAlertTime = now; }
+} else { alertEl.classList.remove('show'); }
+if (risk === 'MED' && state.soundOn && now - lastAlertTime > 3000) { playBeep(440, 0.08, 0.1); lastAlertTime = now; }
+
+const list = document.getElementById('det-list');
+list.innerHTML = '';
+for (const [cls, cnt] of Object.entries(tags)) {
+const div = document.createElement('div');
+div.className = 'det-tag ' + classType(cls);
+div.textContent = cls.toUpperCase() + (cnt > 1 ? ' x' + cnt : '');
+list.appendChild(div);
+}
+}
+
+function toggleDetection() {
+state.detecting = !state.detecting;
+document.getElementById('btn-detect').classList.toggle('active', state.detecting);
+if (!state.detecting) {
+ctx.clearRect(0, 0, canvas.width, canvas.height);
+document.getElementById('det-list').innerHTML = '';
+document.getElementById('val-vehicles').textContent = '0';
+document.getElementById('val-persons').textContent = '0';
+document.getElementById('val-total').textContent = '0';
+document.getElementById('val-risk').textContent = '--';
+document.getElementById('alert').classList.remove('show');
+}
+}
+
+function flipCamera() {
+state.facingMode = state.facingMode === 'environment' ? 'user' : 'environment';
+initCamera();
+}
+
+function toggleSound() {
+state.soundOn = !state.soundOn;
+document.getElementById('sound-icon').textContent = state.soundOn ? '&#128266;' : '&#128263;';
+document.getElementById('btn-sound').classList.toggle('active', state.soundOn);
+if (state.soundOn) {
+if (!state.audioCtx) state.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+if (state.audioCtx.state === 'suspended') state.audioCtx.resume();
+}
+}
+
+function playBeep(freq, vol, dur) {
+if (!state.audioCtx) return;
+const osc = state.audioCtx.createOscillator();
+const gain = state.audioCtx.createGain();
+osc.connect(gain); gain.connect(state.audioCtx.destination);
+osc.frequency.value = freq; gain.gain.value = vol;
+osc.start(); osc.stop(state.audioCtx.currentTime + dur);
+}
+
+document.getElementById('retry-btn').addEventListener('click', initCamera);
+window.addEventListener('load', init);
+</script>
+</body>
+</html>
