@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="ADAS Vision">
+  <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🚗</text></svg>">
+  <title>iPhone 15 Pro Max ADAS</title>
+
+  <link rel="stylesheet" href="style.css">
+
+  <script>window._loadErrors = [];</script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.20.0/dist/tf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.2/dist/coco-ssd.min.js"></script>
+</head>
+<body>
+
+  <div id="splash">
+    <div class="splash-logo">ADAS</div>
+    <div class="splash-sub">ADVANCED DRIVER ASSISTANCE</div>
+    <div class="splash-ring"></div>
+    <div class="splash-status" id="splash-status">LOADING NEURAL MODEL...</div>
+    <button id="start-btn" class="hidden">START SYSTEM</button>
+  </div>
+
+  <div id="perm-error">
+    <h2>&#9888; CAMERA ACCESS DENIED</h2>
+    <p>ADAS Vision requires camera access to function.<br>
+    Go to Settings &rarr; Safari &rarr; Camera &rarr; Allow</p>
+    <button id="retry-btn">RETRY</button>
+  </div>
+
+  <div id="app">
+    <video id="video" autoplay playsinline muted></video>
+    <canvas id="overlay"></canvas>
+    <div id="scanlines"></div>
+    <div id="vignette"></div>
+
+    <div class="hud-corner tl"></div>
+    <div class="hud-corner tr"></div>
+    <div class="hud-corner bl"></div>
+    <div class="hud-corner br"></div>
+
+    <div id="topbar">
+      <div id="logo-text">ADAS</div>
+      <div id="top-right">
+        <div id="live-badge"><div class="live-dot"></div>LIVE</div>
+        <div id="clock">--:--</div>
+      </div>
+    </div>
+
+    <div id="reticle">
+      <svg viewBox="0 0 60 60" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="30" cy="30" r="28" stroke="rgba(0,255,136,0.2)" stroke-width="1"/>
+        <circle cx="30" cy="30" r="2" fill="rgba(0,255,136,0.6)"/>
+        <line x1="30" y1="2" x2="30" y2="12" stroke="rgba(0,255,136,0.5)" stroke-width="1"/>
+        <line x1="30" y1="48" x2="30" y2="58" stroke="rgba(0,255,136,0.5)" stroke-width="1"/>
+        <line x1="2" y1="30" x2="12" y2="30" stroke="rgba(0,255,136,0.5)" stroke-width="1"/>
+        <line x1="48" y1="30" x2="58" y2="30" stroke="rgba(0,255,136,0.5)" stroke-width="1"/>
+      </svg>
+    </div>
+
+    <div id="alert">&#9888; COLLISION RISK DETECTED</div>
+    <div id="fps">FPS: --</div>
+    <div id="obj-count">OBJ: 0</div>
+
+    <div id="controls">
+      <div class="ctrl-btn active" id="btn-detect" title="Toggle Detection">
+        <span>&#128065;</span>
+      </div>
+      <div class="ctrl-btn" id="btn-cam" title="Flip Camera">
+        <span>&#128260;</span>
+      </div>
+      <div class="ctrl-btn" id="btn-sound" title="Toggle Sound">
+        <span id="sound-icon">&#128263;</span>
+      </div>
+    </div>
+
+    <div id="bottom-hud">
+      <div id="metrics">
+        <div class="metric">
+          <div class="metric-val" id="val-vehicles">0</div>
+          <div class="metric-lbl">VEHICLES</div>
+        </div>
+        <div class="metric">
+          <div class="metric-val" id="val-persons">0</div>
+          <div class="metric-lbl">PERSONS</div>
+        </div>
+        <div class="metric">
+          <div class="metric-val" id="val-risk">LOW</div>
+          <div class="metric-lbl">RISK LEVEL</div>
+        </div>
+        <div class="metric">
+          <div class="metric-val" id="val-speed">0</div>
+          <div class="metric-lbl">KM/H</div>
+        </div>
+      </div>
+      <div id="det-list"></div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
