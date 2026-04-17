@@ -163,17 +163,18 @@ width: 60px; height: 60px;
 
 #alert {
 position: absolute; z-index: 8;
-top: 100px; left: 50%; transform: translateX(-50%);
+top: 50%; left: 50%; transform: translate(-50%, -50%);
 white-space: nowrap;
-background: rgba(255, 45, 85, 0.15);
-border: 1px solid var(--red);
-border-radius: 6px;
-padding: 8px 20px;
-font-size: 12px; font-weight: 600;
-letter-spacing: 3px; color: var(--red);
-text-shadow: 0 0 10px var(--red);
+background: rgba(255, 45, 85, 0.25);
+border: 3px solid var(--red);
+border-radius: 12px;
+padding: 28px 48px;
+font-size: 32px; font-weight: 900;
+letter-spacing: 4px; color: var(--red);
+text-shadow: 0 0 20px var(--red), 0 0 40px rgba(255,45,85,0.8);
 display: none;
-animation: alertPulse 0.5s infinite;
+animation: alertPulse 0.3s infinite;
+backdrop-filter: blur(8px);
 }
 #alert.show { display: block; }
 @keyframes alertPulse {
@@ -194,7 +195,7 @@ margin-bottom: 12px;
 
 .metric { display: flex; flex-direction: column; align-items: center; gap: 3px; }
 .metric-val {
-font-size: 32px; font-weight: 700; line-height: 1;
+font-size: 42px; font-weight: 900; line-height: 1;
 color: var(--green);
 text-shadow: 0 0 20px var(--green);
 transition: color 0.3s, text-shadow 0.3s;
@@ -226,23 +227,26 @@ animation: fadeIn 0.3s ease;
 @keyframes fadeIn { from { opacity:0; transform: scale(0.9); } to { opacity:1; transform: scale(1); } }
 
 #controls {
-position: absolute; bottom: calc(env(safe-area-inset-bottom, 0px) + 160px);
-right: 16px; z-index: 7;
-display: flex; flex-direction: column; gap: 10px;
+position: absolute; bottom: calc(env(safe-area-inset-bottom, 0px) + 80px);
+right: 20px; z-index: 7;
+display: flex; flex-direction: column; gap: 14px;
+pointer-events: auto;
 }
 .ctrl-btn {
-width: 44px; height: 44px;
-border-radius: 50%;
-background: rgba(0,0,0,0.5);
-border: 1px solid var(--g30);
+width: 56px; height: 56px;
+border-radius: 4px;
+background: rgba(0,0,0,0.6);
+border: 2px solid var(--g30);
 color: var(--green);
-font-size: 16px;
+font-size: 20px;
 display: flex; align-items: center; justify-content: center;
-cursor: pointer; -webkit-backdrop-filter: blur(8px);
-transition: background 0.2s, border-color 0.2s;
+cursor: pointer; backdrop-filter: blur(12px);
+transition: background 0.2s, border-color 0.2s, transform 0.1s;
+touch-action: manipulation;
+-webkit-user-select: none; user-select: none;
 }
-.ctrl-btn:active { background: var(--g10); border-color: var(--green); }
-.ctrl-btn.active { border-color: var(--green); box-shadow: 0 0 10px var(--g30); }
+.ctrl-btn:active { background: var(--g10); border-color: var(--green); transform: scale(0.95); }
+.ctrl-btn.active { border-color: var(--green); box-shadow: 0 0 15px var(--g30), inset 0 0 10px rgba(0,255,136,0.1); }
 
 #fps {
 position: absolute; top: calc(env(safe-area-inset-top, 12px) + 60px);
@@ -367,10 +371,11 @@ Go to Settings &rarr; Safari &rarr; Camera &rarr; Allow</p>
 <script>
 const state = {
 model: null, stream: null, facingMode: 'environment',
-detecting: true, soundOn: false, running: false,
+detecting: true, soundOn: localStorage.getItem('adas-sound') === 'true', running: false,
 frameCount: 0, lastFps: 0, alertActive: false,
 audioCtx: null, wakeLock: null,
 };
+
 
 const video = document.getElementById('video');
 const canvas = document.getElementById('overlay');
@@ -627,6 +632,7 @@ initCamera();
 
 function toggleSound() {
 state.soundOn = !state.soundOn;
+localStorage.setItem('adas-sound', state.soundOn);
 document.getElementById('sound-icon').textContent = state.soundOn ? '🔊' : '🔇';
 document.getElementById('btn-sound').classList.toggle('active', state.soundOn);
 if (state.soundOn) {
@@ -642,10 +648,34 @@ const gain = state.audioCtx.createGain();
 osc.connect(gain); gain.connect(state.audioCtx.destination);
 osc.frequency.value = freq; gain.gain.value = vol;
 osc.start(); osc.stop(state.audioCtx.currentTime + dur);
+hapticFeedback();
+}
+
+function hapticFeedback(pattern = 1) {
+if (navigator.vibrate) {
+if (pattern === 1) navigator.vibrate([50, 50, 50]);
+else if (pattern === 2) navigator.vibrate([100, 50, 100, 50, 100]);
+else navigator.vibrate(30);
+}
+}
+
+function lockOrientation() {
+if (screen.orientation && screen.orientation.lock) {
+screen.orientation.lock('landscape-primary').catch(() => {});
+}
 }
 
 document.getElementById('retry-btn').addEventListener('click', initCamera);
-window.addEventListener('load', init);
+
+window.addEventListener('load', () => {
+lockOrientation();
+init();
+document.getElementById('btn-sound').classList.toggle('active', state.soundOn);
+});
+
+window.addEventListener('orientationchange', () => {
+setTimeout(() => { resizeCanvas(); }, 100);
+});
 </script>
 </body>
 </html>
