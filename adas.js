@@ -66,6 +66,15 @@ async function init() {
       throw new Error('COCO-SSD not loaded. Check console for script errors.');
     }
     state.model = await cocoSsd.load();
+    // Initialize AudioContext for sound alerts
+    try {
+      state.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      if (state.audioCtx.state === 'suspended') {
+        state.audioCtx.resume();
+      }
+    } catch (e) {
+      console.warn('AudioContext unavailable:', e);
+    }
     startGPS();
     splashStatus.textContent = 'STARTING CAMERA...';
     await initCamera();
@@ -308,13 +317,24 @@ function toggleSound() {
 
 // Audio & Haptic Feedback
 function playBeep(freq, vol, dur) {
-  if (!state.audioCtx) return;
-  const osc = state.audioCtx.createOscillator();
-  const gain = state.audioCtx.createGain();
-  osc.connect(gain); gain.connect(state.audioCtx.destination);
-  osc.frequency.value = freq; gain.gain.value = vol;
-  osc.start(); osc.stop(state.audioCtx.currentTime + dur);
-  hapticFeedback();
+  try {
+    // Create AudioContext if not exists (for user interaction requirement)
+    if (!state.audioCtx) {
+      state.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    // Resume if suspended by browser
+    if (state.audioCtx.state === 'suspended') {
+      state.audioCtx.resume().catch(e => console.warn('Resume AudioContext failed:', e));
+    }
+    const osc = state.audioCtx.createOscillator();
+    const gain = state.audioCtx.createGain();
+    osc.connect(gain); gain.connect(state.audioCtx.destination);
+    osc.frequency.value = freq; gain.gain.value = vol;
+    osc.start(); osc.stop(state.audioCtx.currentTime + dur);
+    hapticFeedback();
+  } catch (e) {
+    console.warn('Beep failed:', e);
+  }
 }
 
 function hapticFeedback(pattern = 1) {
