@@ -337,7 +337,7 @@ Go to Settings &rarr; Safari &rarr; Camera &rarr; Allow</p>
 <span>&#128260;</span>
 </div>
 <div class="ctrl-btn" id="btn-sound" title="Toggle Sound" onclick="toggleSound()">
-<span id="sound-icon">&#128263;</span>
+<span id="sound-icon">🔇</span>
 </div>
 </div>
 
@@ -627,7 +627,7 @@ initCamera();
 
 function toggleSound() {
 state.soundOn = !state.soundOn;
-document.getElementById('sound-icon').textContent = state.soundOn ? '&#128266;' : '&#128263;';
+document.getElementById('sound-icon').textContent = state.soundOn ? '🔊' : '🔇';
 document.getElementById('btn-sound').classList.toggle('active', state.soundOn);
 if (state.soundOn) {
 if (!state.audioCtx) state.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
